@@ -25,7 +25,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "0.78000";
+my $gVersion = "0.79000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 use Data::Dumper;               # debug only
@@ -527,6 +527,7 @@ sub newsit {
       $sit_sum[$siti] = 0;
       $sit_dist[$siti] = 0;                         # When 1, there is a distribution
       $sit_dist_objaccl[$siti] = "";                # list of distributions
+      $sit_text[$siti] = "";                        # Situation Desciption
 }
 
 
@@ -1113,8 +1114,9 @@ sub init_lst {
       print STDERR "working on KSIT2 line $ll\n" if $opt_v == 1;
       ($isitname,$itext) = parse_lst(2,$oneline);
       $isitname =~ s/\s+$//;   #trim trailing whitespace
+      $sx = $sitx{$isitname};
       $itext =~ s/\s+$//;   #trim trailing whitespace
-      $sit_text[$sx] = $itext;
+      $sit_text[$sx] = $itext if defined $sx;
    }
 
    # (6) the TNODESAV data
@@ -1507,3 +1509,4 @@ sub gettime
 # 0.76000  : Count situation impact on agents
 # 0.77000  : Add Persist to onerow report
 # 0.78000  : Add Text [Description] to onerow report
+# 0.79000  : Correct Description capture for -lst option
