@@ -25,7 +25,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "0.75000";
+my $gVersion = "0.78000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 use Data::Dumper;               # debug only
@@ -54,6 +54,8 @@ my @connections = ();                    # list of possible hub TEMS servers
 my $connection="";                       # connection chosen to primary hub TEMS
 my $key;
 my $n;
+
+my %agtusex;
 
 my %localhostx;
 
@@ -98,11 +100,12 @@ my @sit_autostart = ();                    # array of AUTOSTART columns
 my @sit_sum = ();                          # count of *SUM
 my @sit_agents = ();                       # Agents where this situation should run
 my @sit_agenth = ();                       # hash of agent distribution
-my @sit_cmd = ();                          # 1 if CMD is present
 my @sit_dist = ();                         # When 1, distributed
 my @sit_dist_objaccl = ();                 # Situation Distributions in TOBJACCL and TGROUP/TGROUPI
-my @sit_process = ();                      # Process type attribute group
+my @sit_reeval = ();                       # Situaton Sampling Interval
+my @sit_text = ();                         # Situaton Description
 my $sit_distribution = 0;                  # when 1, distributions are present
+
 
 my %sitax;
 
@@ -145,6 +148,7 @@ my $opt_txt_tpcydesc;           # TPCYDESC txt file
 my $opt_lst;                    # input from .lst files
 my $opt_lst_tsitdesc;           # TSITDESC lst file
 my $opt_lst_tsitdesc1;          # TSITDESC1 lst file
+my $opt_lst_tsitdesc2;          # TSITDESC2 lst file
 my $opt_lst_tname;              # TNAME lst file
 my $opt_lst_tobjaccl;           # TOBJACCL txt file
 my $opt_lst_tgroup;             # TGROUP lst file
@@ -204,7 +208,7 @@ print OH "\n";
 if ($opt_onerow == 0) {
    print OH "Situation,Severity,Agent_count,Agents,Predicate\n";
 } else {
-   print OH "Situation,Severity,IP_Address,Agent,Why,Predicate\n";
+   print OH "Situation[Fullname],Severity,IP_Address,Agent,Why,Persist,Description,Reeval,Predicate\n";
 }
 
 
@@ -212,6 +216,7 @@ if ($opt_onerow == 0) {
 my $sitone;
 my $psitone;
 my $sevone;
+my $ipersist;
 my $agent_ct;
 my @hashsit = ();
 my %disthash;
@@ -224,9 +229,14 @@ for (my $i=0;$i<=$siti;$i++) {
 
 
    $sevone = "";
+   $ipersist = "";
    if ($sit_sitinfo[$i] ne "") {
       $sit_sitinfo[$i] =~ /SEV=([^;]+)/;
       $sevone = $1 if defined $1;
+   }
+   if ($sit_sitinfo[$i] ne "") {
+      $sit_sitinfo[$i] =~ /COUNT=([^;]+)/;
+      $ipersist = $1 if defined $1;
    }
    $agent_ct =  scalar(keys %{$sit_agenth[$i]});
    if ($opt_zero == 0) {
@@ -253,7 +263,12 @@ for (my $i=0;$i<=$siti;$i++) {
       my %onerow = %{$sit_agenth[$i]};
       foreach my $f ( sort { $onerow{$a} cmp  $onerow{$b} } keys %onerow ) {
          $oline = "";
-         $oline .= $sitone . ",";
+         $oline .= $sitone;
+         if (defined $sitfullx{$sitone}) {
+            $oline .= "[" . $sitfullx{$sitone} . "]";
+         }
+         $oline .= ",";
+
          $oline .= $sevone . ",";
          my $pip = "";
          my $ax = $agtx{$f};
@@ -284,9 +299,50 @@ for (my $i=0;$i<=$siti;$i++) {
            }
            $oline .= $pwhy . ",";
          }
+         $oline .= $ipersist . ",";
+         $oline .= $sit_text[$i] . ",";
+         $oline .= $sit_reeval[$i] . ",";
          $oline .= $sit_pdt[$i] . ",";
          print OH "$oline\n";
+
+         my $agtuse_ref = $agtusex{$f};
+         if (!defined $agtuse_ref) {
+            my %agtuseref = (
+                               count => 0,
+                               pure => 0,
+                               samp => 0,
+                               samp_hr => 0,
+                               sits => {},
+                            );
+            $agtuse_ref = \%agtuseref;
+            $agtusex{$f} = \%agtuseref;
+         }
+         $agtuse_ref->{count} += 1;
+         if ($sit_reeval[$i] == 0) {
+            $agtuse_ref->{pure} += 1;
+         } else {
+            $agtuse_ref->{samp} += 1;
+            $agtuse_ref->{samp_hr} += (3600/$sit_reeval[$i]);
+         }
+         my $isit = $sit[$i] . "|" . $sit_fullname[$i];
+         $agtuse_ref->{sits}{$isit} = 1;
       }
+   }
+}
+if ($opt_onerow == 1) {
+   my $oline = "";
+   print OH "\n";
+   print OH "Agents with situation workload more than 120 samples per hour\n";
+   print OH "Agents,Count,Pure,Samp,Samp/hr\n";
+   foreach my $f ( sort { $agtusex{$b}->{samp_hr} cmp  $agtusex{$a}->{samp_hr}} keys %agtusex ) {
+      my $agtuse_ref = $agtusex{$f};
+      last if $agtuse_ref->{samp_hr} <= 120;
+      $oline = $f . ",";
+      $oline .= $agtuse_ref->{count} . ",";
+      $oline .= $agtuse_ref->{pure} . ",";
+      $oline .= $agtuse_ref->{samp} . ",";
+      $oline .= $agtuse_ref->{samp_hr} . ",";
+      print OH "$oline\n";
    }
 }
 
@@ -464,16 +520,13 @@ sub newsit {
          $reev_time_mm = substr($ireev_time,2,2);
          $reev_time_ss = substr($ireev_time,4,2);
       }
-
+      $sit_reeval[$siti] = $ireev_days*86400+$reev_time_hh*3600+$reev_time_mm*60+$reev_time_ss;
       $sit_sitinfo[$siti] = $isitinfo;
       $sit_agents[$siti] = [];                      # Array of agents where situation should run
       $sit_agenth[$siti] = ();                      # hash of arrays of arrays concerning distribution of sits
-      $sit_cmd[$siti] = 1;                                  # Assume CMD is present = 1
-      $sit_cmd[$siti] = 0;
       $sit_sum[$siti] = 0;
       $sit_dist[$siti] = 0;                         # When 1, there is a distribution
       $sit_dist_objaccl[$siti] = "";                # list of distributions
-      $sit_process[$siti] = 0;                      # Attributes related to Process
 }
 
 
@@ -498,6 +551,7 @@ sub init_txt {
    my $iautostart;
    my $isitinfo;
    my $icmd;
+   my $itext;
    my $ireev_days;
    my $ireev_time;
    my $iid;
@@ -646,9 +700,14 @@ sub init_txt {
          $ipdt = substr($oneline,689,1020);
          $ipdt =~ s/\s+$//;   #trim trailing whitespace
       }
+      $itext = "";
+      if (length($oneline) > 1715) {                     #???
+         $itext = substr($oneline,1714,64);
+         $itext =~ s/\s+$//;   #trim trailing whitespace
+      }
       newsit($isitname,$ipdt,"",$iautostart,$isitinfo,$ireev_days,$ireev_time);
+      $sit_text[$siti] = $itext;
       $sit_fullname[$siti] = $sitfullx{$isitname} if defined $sitfullx{$isitname};
-      $sit_cmd[$siti] = 1 if $icmd ne "*NONE";
    }
 
    # (6) the TNODESAV data
@@ -872,6 +931,7 @@ sub init_lst {
    my $iautostart;
    my $isitinfo;
    my $icmd;
+   my $itext;
    my $ireev_days;
    my $ireev_time;
    my $iid;
@@ -988,22 +1048,26 @@ sub init_lst {
 
    # (4) the TNAME data
    # [1]  ZIBM_STATIC134_24CA0B4D91DB4FFD  IBM-test-length
-   open(KTNA, "< $opt_lst_tname") || die("Could not open tname $opt_lst_tname\n");
-   @ktna_data = <KTNA>;
-   close(KTNA);
+   my $go_tname = 1;
+   open(KTNA, "< $opt_lst_tname") or $go_tname = 0;
+   warn("Could not open tname $opt_lst_tname\n") if $go_tname == 0;
+   if ($go_tname == 1) {
+      @ktna_data = <KTNA>;
+      close(KTNA);
 
-   $ll = 0;
-   foreach $oneline (@ktna_data) {
-      $ll += 1;
-      next if substr($oneline,0,10) eq "KCIIN0187I";      # A Linux/Unix first line
-      chop $oneline;
-      next if substr($oneline,0,1) ne "[";
-      print STDERR "working on KTNA line $ll\n" if $opt_v == 1;
-      ($iid,$ifullname) = parse_lst(2,$oneline);
-      $iid =~ s/\s+$//;   #trim trailing whitespace
-      $ifullname =~ s/\s+$//;   #trim trailing whitespace
-      next if $ifullname eq "";
-      $sitfullx{$iid} = $ifullname;
+      $ll = 0;
+      foreach $oneline (@ktna_data) {
+         $ll += 1;
+         next if substr($oneline,0,10) eq "KCIIN0187I";      # A Linux/Unix first line
+         chop $oneline;
+         next if substr($oneline,0,1) ne "[";
+         print STDERR "working on KTNA line $ll\n" if $opt_v == 1;
+         ($iid,$ifullname) = parse_lst(2,$oneline);
+         $iid =~ s/\s+$//;   #trim trailing whitespace
+         $ifullname =~ s/\s+$//;   #trim trailing whitespace
+         next if $ifullname eq "";
+         $sitfullx{$iid} = $ifullname;
+      }
    }
 
    # (5) the TSITDESC data
@@ -1034,9 +1098,9 @@ sub init_lst {
       $sit_fullname[$siti] = $sitfullx{$isitname} if defined $sitfullx{$isitname};
    }
 
-   # (5A) the TSITDESC data - CMDs that are not *NONE and not blank
+   # (5A) the TSITDESC data - TEXTs columns
    # [1]  IBM_Offline_action  echo   &{ManagedSystem.Name}  offline at  &{ManagedSystem.Timestamp} >>/tmp/offline.log
-   open(KSIT, "< $opt_lst_tsitdesc1") || die("Could not open sit $opt_lst_tsitdesc1\n");
+   open(KSIT, "< $opt_lst_tsitdesc2") || die("Could not open sit $opt_lst_tsitdesc2\n");
    @ksit_data = <KSIT>;
    close(KSIT);
 
@@ -1046,14 +1110,11 @@ sub init_lst {
       next if substr($oneline,0,10) eq "KCIIN0187I";      # A Linux/Unix first line
       chop $oneline;
       next if substr($oneline,0,1) ne "[";
-      print STDERR "working on KSIT1 line $ll\n" if $opt_v == 1;
-      ($isitname,$icmd) = parse_lst(2,$oneline);
+      print STDERR "working on KSIT2 line $ll\n" if $opt_v == 1;
+      ($isitname,$itext) = parse_lst(2,$oneline);
       $isitname =~ s/\s+$//;   #trim trailing whitespace
-      $icmd =~ s/\s+$//;   #trim trailing whitespace
-      next if $icmd eq "";
-      $sx = $sitx{$isitname};
-      next if !defined $sx;
-      $sit_cmd[$sx] = 1;
+      $itext =~ s/\s+$//;   #trim trailing whitespace
+      $sit_text[$sx] = $itext;
    }
 
    # (6) the TNODESAV data
@@ -1220,6 +1281,7 @@ sub init {
    if (defined $opt_lst) {
       $opt_lst_tsitdesc = "QA1CSITF.DB.LST";
       $opt_lst_tsitdesc1 = "QA1CSITF1.DB.LST";
+      $opt_lst_tsitdesc2 = "QA1CSITF2.DB.LST";
       $opt_lst_tname =    "QA1DNAME.DB.LST";
       $opt_lst_tobjaccl = "QA1DOBJA.DB.LST";
       $opt_lst_tgroup   = "QA1DGRPA.DB.LST";
@@ -1442,3 +1504,6 @@ sub gettime
 # 0.73000  : Correct handling of Sitgroup distribution by agent name
 # 0.74000  : Add knowledge of distribution for TCALENDAR, TOVERRIDE and POLICY
 # 0.75000  : Remove json output to ease customer use - original logic in sitinfo_json.pl
+# 0.76000  : Count situation impact on agents
+# 0.77000  : Add Persist to onerow report
+# 0.78000  : Add Text [Description] to onerow report
