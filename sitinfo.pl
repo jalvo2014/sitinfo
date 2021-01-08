@@ -25,7 +25,7 @@ use warnings;
 
 # See short history at end of module
 
-my $gVersion = "0.79000";
+my $gVersion = "0.80000";
 my $gWin = (-e "C://") ? 1 : 0;    # 1=Windows, 0=Linux/Unix
 
 use Data::Dumper;               # debug only
@@ -1510,3 +1510,4 @@ sub gettime
 # 0.77000  : Add Persist to onerow report
 # 0.78000  : Add Text [Description] to onerow report
 # 0.79000  : Correct Description capture for -lst option
+# 0.80000  : Correct sitinfo.sh and sitinfo.cmd output file redirection
